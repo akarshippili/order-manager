@@ -19,11 +19,8 @@ var rawData = []string{
 	`{"productCode": 5555, "quantity": 1000.000001, "status": 1}`,
 }
 
-var receivedOrdersChannel = make(chan model.Order)
-var validOrdersChannel = make(chan model.Order)
-var inValidOrdersChannel = make(chan model.InvalidOrder)
-
-func receiveOrders() {
+// directional channel
+func receiveOrders(receivedOrdersChannel chan<- model.Order) {
 	for _, rawOrder := range rawData {
 		var order model.Order
 		err := json.Unmarshal([]byte(rawOrder), &order)
@@ -37,7 +34,7 @@ func receiveOrders() {
 	}
 }
 
-func validateOrders() {
+func validateOrders(receivedOrdersChannel <-chan model.Order, validOrdersChannel chan<- model.Order, inValidOrdersChannel chan<- model.InvalidOrder) {
 	order := <-receivedOrdersChannel
 	if order.Quantity <= 0 {
 		inValidOrdersChannel <- model.InvalidOrder{
@@ -51,13 +48,17 @@ func validateOrders() {
 
 func main() {
 
-	go receiveOrders()
-	go validateOrders()
+	var receivedOrdersChannel = make(chan model.Order)
+	var validOrdersChannel = make(chan model.Order)
+	var inValidOrdersChannel = make(chan model.InvalidOrder)
+
+	go receiveOrders(receivedOrdersChannel)
+	go validateOrders(receivedOrdersChannel, validOrdersChannel, inValidOrdersChannel)
 
 	var wg sync.WaitGroup
 	wg.Add(1)
 
-	go func() {
+	go func(validOrdersChannel <-chan model.Order, invalidOrdersChannel <-chan model.InvalidOrder) {
 		defer wg.Done()
 
 		fmt.Println("Waiting for Order")
@@ -68,7 +69,7 @@ func main() {
 		case invalidOrder := <-inValidOrdersChannel:
 			fmt.Printf("invalid order recived -> %v \n", invalidOrder.Order.String())
 		}
-	}()
+	}(validOrdersChannel, inValidOrdersChannel)
 
 	wg.Wait()
 
