@@ -19,7 +19,7 @@ var rawData = []string{
 	`{"productCode": 5555, "quantity": 1000.000001, "status": 1}`,
 }
 
-// directional channel
+// directional channel which makes the intent of the channels more clear
 func receiveOrders(receivedOrdersChannel chan<- model.Order) {
 	for _, rawOrder := range rawData {
 		var order model.Order
@@ -29,21 +29,24 @@ func receiveOrders(receivedOrdersChannel chan<- model.Order) {
 			fmt.Println(err)
 			continue
 		}
-
 		receivedOrdersChannel <- order
 	}
+	close(receivedOrdersChannel)
 }
 
 func validateOrders(receivedOrdersChannel <-chan model.Order, validOrdersChannel chan<- model.Order, inValidOrdersChannel chan<- model.InvalidOrder) {
-	order := <-receivedOrdersChannel
-	if order.Quantity <= 0 {
-		inValidOrdersChannel <- model.InvalidOrder{
-			Order: order,
-			Err:   errors.New("order quantity must be greater than 0"),
+	for order := range receivedOrdersChannel {
+		if order.Quantity <= 0 {
+			inValidOrdersChannel <- model.InvalidOrder{
+				Order: order,
+				Err:   errors.New("order quantity must be greater than 0"),
+			}
+		} else {
+			validOrdersChannel <- order
 		}
-	} else {
-		validOrdersChannel <- order
 	}
+	close(validOrdersChannel)
+	close(inValidOrdersChannel)
 }
 
 func main() {
@@ -60,15 +63,26 @@ func main() {
 
 	go func(validOrdersChannel <-chan model.Order, invalidOrdersChannel <-chan model.InvalidOrder) {
 		defer wg.Done()
+		fmt.Println("Waiting for Orders")
 
-		fmt.Println("Waiting for Order")
-
-		select {
-		case validOrder := <-validOrdersChannel:
-			fmt.Printf("valid order recived -> %v \n", validOrder.String())
-		case invalidOrder := <-inValidOrdersChannel:
-			fmt.Printf("invalid order recived -> %v \n", invalidOrder.Order.String())
+	loop:
+		for {
+			select {
+			case validOrder, ok := <-validOrdersChannel:
+				if ok {
+					fmt.Printf("valid order recived -> %v \n", validOrder.String())
+				} else {
+					break loop
+				}
+			case invalidOrder, ok := <-inValidOrdersChannel:
+				if ok {
+					fmt.Printf("invalid order recived -> %v \n", invalidOrder.Order.String())
+				} else {
+					break loop
+				}
+			}
 		}
+
 	}(validOrdersChannel, inValidOrdersChannel)
 
 	wg.Wait()
