@@ -20,43 +20,53 @@ var rawData = []string{
 }
 
 // directional channel which makes the intent of the channels more clear
-func receiveOrders(receivedOrdersChannel chan<- model.Order) {
-	for _, rawOrder := range rawData {
-		var order model.Order
-		err := json.Unmarshal([]byte(rawOrder), &order)
+func receiveOrders() <-chan model.Order {
+	receivedOrdersChannel := make(chan model.Order)
 
-		if err != nil {
-			fmt.Println(err)
-			continue
+	go func() {
+		for _, rawOrder := range rawData {
+			var order model.Order
+			err := json.Unmarshal([]byte(rawOrder), &order)
+
+			if err != nil {
+				fmt.Println(err)
+				continue
+			}
+			receivedOrdersChannel <- order
 		}
-		receivedOrdersChannel <- order
-	}
-	close(receivedOrdersChannel)
+		close(receivedOrdersChannel)
+	}()
+
+	return receivedOrdersChannel
 }
 
-func validateOrders(receivedOrdersChannel <-chan model.Order, validOrdersChannel chan<- model.Order, inValidOrdersChannel chan<- model.InvalidOrder) {
-	for order := range receivedOrdersChannel {
-		if order.Quantity <= 0 {
-			inValidOrdersChannel <- model.InvalidOrder{
-				Order: order,
-				Err:   errors.New("order quantity must be greater than 0"),
+func validateOrders(receivedOrdersChannel <-chan model.Order) (<-chan model.Order, <-chan model.InvalidOrder) {
+
+	validOrdersChannel := make(chan model.Order)
+	inValidOrdersChannel := make(chan model.InvalidOrder, 1)
+
+	go func() {
+		for order := range receivedOrdersChannel {
+			if order.Quantity <= 0 {
+				inValidOrdersChannel <- model.InvalidOrder{
+					Order: order,
+					Err:   errors.New("order quantity must be greater than 0"),
+				}
+			} else {
+				validOrdersChannel <- order
 			}
-		} else {
-			validOrdersChannel <- order
 		}
-	}
-	close(validOrdersChannel)
-	close(inValidOrdersChannel)
+		close(validOrdersChannel)
+		close(inValidOrdersChannel)
+	}()
+
+	return validOrdersChannel, inValidOrdersChannel
 }
 
 func main() {
 
-	var receivedOrdersChannel = make(chan model.Order)
-	var validOrdersChannel = make(chan model.Order)
-	var inValidOrdersChannel = make(chan model.InvalidOrder)
-
-	go receiveOrders(receivedOrdersChannel)
-	go validateOrders(receivedOrdersChannel, validOrdersChannel, inValidOrdersChannel)
+	receivedOrdersChannel := receiveOrders()
+	validOrdersChannel, inValidOrdersChannel := validateOrders(receivedOrdersChannel)
 
 	var wg sync.WaitGroup
 	wg.Add(1)
@@ -86,5 +96,4 @@ func main() {
 	}(validOrdersChannel, inValidOrdersChannel)
 
 	wg.Wait()
-
 }
