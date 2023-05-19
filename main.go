@@ -63,37 +63,46 @@ func validateOrders(receivedOrdersChannel <-chan model.Order) (<-chan model.Orde
 	return validOrdersChannel, inValidOrdersChannel
 }
 
+func reserverInventory(in <-chan model.Order) <-chan model.Order {
+
+	out := make(chan model.Order)
+
+	go func() {
+		for order := range in {
+			order.Status = model.Reserved
+			out <- order
+		}
+		close(out)
+	}()
+
+	return out
+}
+
 func main() {
 
 	receivedOrdersChannel := receiveOrders()
 	validOrdersChannel, inValidOrdersChannel := validateOrders(receivedOrdersChannel)
+	reservedOrdersChannel := reserverInventory(validOrdersChannel)
 
 	var wg sync.WaitGroup
-	wg.Add(1)
+	wg.Add(2)
 
-	go func(validOrdersChannel <-chan model.Order, invalidOrdersChannel <-chan model.InvalidOrder) {
+	go func(reservedOrderChannel <-chan model.Order) {
 		defer wg.Done()
-		fmt.Println("Waiting for Orders")
 
-	loop:
-		for {
-			select {
-			case validOrder, ok := <-validOrdersChannel:
-				if ok {
-					fmt.Printf("valid order recived -> %v \n", validOrder.String())
-				} else {
-					break loop
-				}
-			case invalidOrder, ok := <-inValidOrdersChannel:
-				if ok {
-					fmt.Printf("invalid order recived -> %v \n", invalidOrder.Order.String())
-				} else {
-					break loop
-				}
-			}
+		for reservedOrder := range reservedOrdersChannel {
+			fmt.Printf("Inventory recived for order -> %v \n", reservedOrder.String())
 		}
+	}(receivedOrdersChannel)
 
-	}(validOrdersChannel, inValidOrdersChannel)
+	go func(invalidOrdersChannel <-chan model.InvalidOrder) {
+		defer wg.Done()
+
+		for invalidOrder := range inValidOrdersChannel {
+			fmt.Printf("invalid order recived -> %v \n", invalidOrder.Order.String())
+		}
+	}(inValidOrdersChannel)
 
 	wg.Wait()
+	fmt.Println("Done processing orders.")
 }
