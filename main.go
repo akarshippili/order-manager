@@ -85,15 +85,20 @@ func main() {
 	reservedOrdersChannel := reserverInventory(validOrdersChannel)
 
 	var wg sync.WaitGroup
-	wg.Add(2)
+	wg.Add(1)
 
-	go func(reservedOrderChannel <-chan model.Order) {
-		defer wg.Done()
+	workers := 3
+	wg.Add(workers)
 
-		for reservedOrder := range reservedOrdersChannel {
-			fmt.Printf("Inventory recived for order -> %v \n", reservedOrder.String())
-		}
-	}(receivedOrdersChannel)
+	for i := 0; i < workers; i++ {
+		go func(reservedOrderChannel <-chan model.Order) {
+			defer wg.Done()
+
+			for reservedOrder := range reservedOrdersChannel {
+				fmt.Printf("Inventory recived for order -> %v \n", reservedOrder.String())
+			}
+		}(receivedOrdersChannel)
+	}
 
 	go func(invalidOrdersChannel <-chan model.InvalidOrder) {
 		defer wg.Done()
